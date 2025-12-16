@@ -1923,6 +1923,14 @@
     let respawnPoint = null;
     let spatialGrid = {}; // For efficient collision detection
 
+    // Track/car vertical relationship
+    // Track segments use BoxGeometry height=2 and are scaled with y=1, so thickness is ~2.
+    // Car uses BoxGeometry height=2, so half-height is ~1.
+    const TRACK_HALF_THICKNESS = 1.0;
+    const TRACK_SURFACE_Y_OFFSET = TRACK_HALF_THICKNESS + 0.02; // small clearance to avoid z-fighting/penetration
+    const CAR_HALF_HEIGHT = 1.0;
+    const CAR_CENTER_Y_OFFSET = TRACK_SURFACE_Y_OFFSET + CAR_HALF_HEIGHT;
+
     // Analog input (used by mobile joystick)
     let analogInput = { throttle: 0, brake: 0, steer: 0 };
 
@@ -2286,6 +2294,7 @@
                 smoothSegments[0].p2.z - smoothSegments[0].p1.z
             )
         };
+        respawnPoint.pos.y += CAR_CENTER_Y_OFFSET;
 
         // Re-add other players' meshes so they persist
         Object.values(otherPlayers).forEach(p => {
@@ -2414,7 +2423,9 @@
             emissive: new THREE.Color(colorNum).multiplyScalar(0.2) 
         });
         car = new THREE.Mesh(geometry, material);
-        car.position.copy(startPos || new THREE.Vector3(0, 5, 0));
+        const spawnPos = startPos ? startPos.clone() : new THREE.Vector3(0, 5, 0);
+        spawnPos.y += CAR_CENTER_Y_OFFSET;
+        car.position.copy(spawnPos);
         car.rotation.y = startAngle || 0;
         
         // Add self label
@@ -2720,7 +2731,7 @@
                     return Math.sign(v) * eased;
                 };
 
-                const steer = applyDeadZone(normalizedX);
+                const steer = applyDeadZone(-normalizedX);
                 const forward = applyDeadZone(-normalizedY);
                 const backward = applyDeadZone(normalizedY);
 
@@ -3154,7 +3165,7 @@
             const limit = seg.width / 2 + 1;
             const distXZSq = dx * dx + dz * dz;
             if (distXZSq < limit * limit) {
-                let yOnTrack = tmpVec.closest.y + 1.5;
+                let yOnTrack = tmpVec.closest.y + CAR_CENTER_Y_OFFSET;
                 let yDiff = carPosition.y - yOnTrack;
                 
                 // Modified condition to prevent falling through track when landing
@@ -3199,6 +3210,7 @@
                     pos: tmpVec.closest.copy(seg.p1).addScaledVector(tmpVec.segVec2, closestT).clone(),
                     angle: yaw
                 };
+                respawnPoint.pos.y += CAR_CENTER_Y_OFFSET;
             }
         } else {
             carVelocity.x *= friction;
@@ -5164,7 +5176,7 @@
                     Math.pow(enemy.position.z - closest.z, 2)
                 );
                 if (distXZ < seg.width / 2) {
-                    let yOnTrack = closest.y + 1.5;
+                    let yOnTrack = closest.y + TRACK_SURFACE_Y_OFFSET;
                     if (enemy.position.y < yOnTrack && enemy.velocity.y < 0) {
                         // Position the hammer on the track surface
                         enemy.position.y = yOnTrack;
