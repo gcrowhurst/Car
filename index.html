@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BitRacer - Bitmap Racing Game</title>
+    <title>Racing Game</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏎️</text></svg>">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
@@ -942,12 +942,14 @@
         /* Mobile optimized positioning and size */
         @media (max-width: 767px) {
             #availableRooms {
-                top: 70px;
-                left: 20px;
+                top: 60px;
+                left: 10px;
                 bottom: auto;
-                width: 180px;
-                max-height: 220px;
-                font-size: 0.9em;
+                width: 140px;
+                max-height: 180px;
+                font-size: 0.8em;
+                background: rgba(17, 24, 39, 0.75);
+                padding: 8px;
             }
             
             #blockInfo {
@@ -955,39 +957,62 @@
             }
             
             #blockForm {
-                width: 180px;
+                width: 140px;
+                font-size: 0.85em;
             }
             
             #nameInputContainer {
-                top: unset;
-                bottom: 20px;
-                right: 20px;
-                flex-direction: column;
-                align-items: flex-start;
-                padding: 10px;
+                display: none; /* Hide on mobile to save screen space */
             }
             
             #gameUI {
-                left: 10px;
-                top: 65px;
-                padding: 10px;
+                left: 8px;
+                top: 60px;
+                padding: 8px;
                 min-width: 0;
-                max-width: 160px;
+                max-width: 130px;
+                background: rgba(17, 24, 39, 0.7);
+                font-size: 0.85em;
             }
             
             #settingsToggle {
-                top: 12px;
-                right: 120px;
+                top: 10px;
+                right: 10px;
+                padding: 8px 12px;
+                font-size: 0.85em;
+                background: rgba(17, 24, 39, 0.7);
             }
             
             #jumpIndicator, #shootCooldown {
-                left: 10px;
-                padding: 5px 10px;
+                display: none; /* Hide indicators on mobile to save space */
             }
             
             #instructions {
                 max-width: 90%;
-                font-size: 0.8em;
+                font-size: 0.75em;
+                padding: 8px 12px;
+                background: rgba(17, 24, 39, 0.7);
+            }
+            
+            #minimap {
+                width: 100px;
+                height: 100px;
+                right: 8px;
+                top: 60px;
+                background: rgba(17, 24, 39, 0.7);
+            }
+            
+            #raceControls {
+                right: 10px;
+                top: 180px;
+                max-width: 140px;
+                padding: 8px;
+                background: rgba(17, 24, 39, 0.75);
+                font-size: 0.85em;
+            }
+            
+            #leaderboard {
+                display: none; /* Hide leaderboard on mobile */
             }
         }
         
@@ -1067,29 +1092,29 @@
         
         #joystickContainer {
             position: fixed;
-            bottom: 100px;
-            left: 30px;
-            width: 120px;
-            height: 120px;
-            background: rgba(31, 41, 55, 0.5);
-            backdrop-filter: blur(3px);
+            bottom: 140px;
+            left: 20px;
+            width: 110px;
+            height: 110px;
+            background: rgba(31, 41, 55, 0.4);
+            backdrop-filter: blur(2px);
             border-radius: 50%;
-            border: 2px solid var(--primary-light);
+            border: 2px solid rgba(99, 102, 241, 0.5);
             z-index: 25;
             touch-action: none;
         }
         
         #joystickHandle {
             position: absolute;
-            width: 60px;
-            height: 60px;
-            background: rgba(67, 56, 202, 0.8);
+            width: 50px;
+            height: 50px;
+            background: rgba(67, 56, 202, 0.75);
             border-radius: 50%;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            box-shadow: 0 0 15px rgba(99, 102, 241, 0.7);
-            border: 2px solid rgba(255,255,255,0.8);
+            box-shadow: 0 0 12px rgba(99, 102, 241, 0.6);
+            border: 2px solid rgba(255,255,255,0.6);
         }
         
         #joystickInstructions {
@@ -1106,19 +1131,19 @@
         }
         
         .control-button {
-            width: 60px;
-            height: 60px;
-            background: rgba(67, 56, 202, 0.7);
+            width: 55px;
+            height: 55px;
+            background: rgba(67, 56, 202, 0.6);
             color: var(--text);
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 24px;
+            font-size: 20px;
             font-weight: 600;
             user-select: none;
-            border: 2px solid rgba(255, 255, 255, 0.7);
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 0 8px rgba(0, 0, 0, 0.2);
         }
         
         .control-button.active {
@@ -1129,11 +1154,11 @@
         
         #actionButtons {
             position: fixed;
-            bottom: 100px;
-            right: 20px;
+            bottom: 140px;
+            right: 15px;
             display: flex;
             flex-direction: column;
-            gap: 15px;
+            gap: 10px;
         }
         
         .action-row {
@@ -2586,10 +2611,11 @@
                 }
                 
                 // Apply to car controls - handle forward/backward movement
-                if (normalizedY < -0.3) {
+                // Increased threshold from 0.3 to 0.5 for less sensitivity
+                if (normalizedY < -0.5) {
                     keys['ArrowUp'] = true;
                     keys['ArrowDown'] = false;
-                } else if (normalizedY > 0.3) {
+                } else if (normalizedY > 0.5) {
                     keys['ArrowDown'] = true;
                     keys['ArrowUp'] = false;
                 } else {
@@ -2598,10 +2624,11 @@
                 }
                 
                 // Handle left/right steering
-                if (normalizedX < -0.3) {
+                // Increased threshold from 0.3 to 0.5 for less twitchy steering
+                if (normalizedX < -0.5) {
                     keys['ArrowLeft'] = true;
                     keys['ArrowRight'] = false;
-                } else if (normalizedX > 0.3) {
+                } else if (normalizedX > 0.5) {
                     keys['ArrowRight'] = true;
                     keys['ArrowLeft'] = false;
                 } else {
@@ -5479,6 +5506,10 @@
         if (isMobile) {
             document.getElementById('mobileControls').style.display = 'block';
             document.getElementById('instructions').innerHTML = '<b>Use on-screen controls</b> to drive. Tap to Jump, Boost, Drift, and Shoot!';
+            
+            // Reduce car turn speed on mobile for better control
+            GAME_CONSTANTS.CAR.TURN_SPEED = 0.030; // Reduced from 0.045
+            GAME_CONSTANTS.CAR.ACCELERATION = 0.06; // Slightly reduced for smoother acceleration
         }
         
         // Fetch latest block more robustly
