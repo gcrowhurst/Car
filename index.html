@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Racing Game</title>
+    <title>BitRacer - Bitmap Racing Game</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏎️</text></svg>">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
@@ -5505,13 +5505,26 @@
         // Setup keyboard controls
         setupControls();
     }
+
+    function validatePlayerName(name) {
+        if (typeof name !== 'string') return false;
+        const trimmed = name.trim();
+        if (!trimmed) return false;
+        return /^[a-zA-Z0-9 _-]{1,20}$/.test(trimmed);
+    }
+
+    function sanitizeHTML(str) {
+        const div = document.createElement('div');
+        div.textContent = String(str);
+        return div.innerHTML;
+    }
     
     function updatePlayerName() {
         const nameInput = document.getElementById('playerName');
         const newName = nameInput.value.trim();
         
         // Validate player name
-        if (newName && !/^[a-zA-Z0-9 _-]{1,20}$/.test(newName)) {
+        if (newName && !validatePlayerName(newName)) {
             alert('Invalid name. Use 1-20 alphanumeric characters, spaces, hyphens, or underscores only.');
             nameInput.value = playerName;
             return;
@@ -5519,16 +5532,10 @@
         
         if (newName && newName !== playerName) {
             // Sanitize HTML to prevent XSS
-            const div = document.createElement('div');
-            div.textContent = newName;
-            playerName = div.innerHTML;
+            playerName = sanitizeHTML(newName);
             
             // Save to localStorage with error handling
-            try {
-                localStorage.setItem('playerName', playerName);
-            } catch (e) {
-                console.warn('Unable to save player name:', e);
-            }
+            storage.setItem('playerName', playerName);
             
             // Update car label
             if (car && car.children.length > 0) {
