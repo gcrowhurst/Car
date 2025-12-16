@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Racing Game</title>
+    <title>BitRacer - Bitmap Racing Game</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏎️</text></svg>">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
@@ -1908,20 +1908,40 @@
     // --- Driving Game Logic ---
     let scene, camera, renderer;
     let trackSegments = [];
-    let car, carSpeed = 0, carMaxSpeed = 2.5, carSteer = 0, carAngle = 0;
+    let car, carSpeed = 0, carMaxSpeed = GAME_CONSTANTS.CAR.MAX_SPEED, carSteer = 0, carAngle = 0;
     let carPosition = new THREE.Vector3(0, 5, 0);
     let carVelocity = new THREE.Vector3(0, 0, 0);
     let carDirection = new THREE.Vector3(0, 0, 1);
     let carOnGround = false;
     let cameraOffset = new THREE.Vector3(0, 10, -22);
     let keys = {};
-    let gravity = -0.25;
-    let friction = 0.98;
-    let groundFriction = 0.92;
+    let gravity = GAME_CONSTANTS.PHYSICS.GRAVITY;
+    let friction = GAME_CONSTANTS.PHYSICS.FRICTION;
+    let groundFriction = GAME_CONSTANTS.PHYSICS.GROUND_FRICTION;
     let jumpPower = 0.0; // set to >0 for jump support
-    let trackWidth = 40; // Double width for more comfortable racing
+    let trackWidth = GAME_CONSTANTS.TRACK.WIDTH; // Double width for more comfortable racing
     let respawnPoint = null;
     let spatialGrid = {}; // For efficient collision detection
+
+    // Analog input (used by mobile joystick)
+    let analogInput = { throttle: 0, brake: 0, steer: 0 };
+
+    // Reusable temp vectors to reduce per-frame allocations
+    const tmpVec = {
+        segVec: new THREE.Vector3(),
+        segVec2: new THREE.Vector3(),
+        toCar: new THREE.Vector3(),
+        closest: new THREE.Vector3(),
+        idealOffset: new THREE.Vector3(),
+        camTarget: new THREE.Vector3(),
+        lookTarget: new THREE.Vector3(),
+        lookAhead: new THREE.Vector3()
+    };
+
+    // Animation loop timing
+    let lastPositionBroadcastMs = 0;
+    let lastMinimapUpdateMs = 0;
+    let lastFullStateSyncMs = 0;
 
     // Game mechanics variables
     let lives = 3;
@@ -1946,13 +1966,13 @@
 
     // Special abilities
     let canJump = true;
-    let jumpCooldown = 1500; // milliseconds
+    let jumpCooldown = GAME_CONSTANTS.CAR.JUMP_COOLDOWN; // milliseconds
     let boostStrength = 1.0;  // Multiplier for boost
     let driftFactor = 0.0;   // For drift mode (0 = no drift)
     
     // Shooting mechanics
     let canShoot = true;
-    let shootCooldown = 800; // milliseconds
+    let shootCooldown = GAME_CONSTANTS.GAMEPLAY.SHOOT_COOLDOWN; // milliseconds
     let activeLasers = [];
     
     // Rooms storage
@@ -2226,6 +2246,7 @@
             
             // Track segment data
             const segmentData = { 
+                id: i,
                 mesh, 
                 p1: p1.clone(), 
                 p2: p2.clone(), 
@@ -2370,7 +2391,7 @@
                 const cellKey = `${x},${z}`;
                 if (spatialGrid[cellKey]) {
                     spatialGrid[cellKey].forEach(segment => {
-                        const segmentId = trackSegments.indexOf(segment);
+                        const segmentId = segment.id;
                         if (!checkedSegments.has(segmentId)) {
                             segments.push(segment);
                             checkedSegments.add(segmentId);
@@ -2688,31 +2709,24 @@
                     joystickHandle.style.top = `${touchY - joystickCenter.y + joystickContainer.offsetHeight/2}px`;
                 }
                 
-                // Apply to car controls - handle forward/backward movement
-                // Increased threshold from 0.3 to 0.5 for less sensitivity
-                if (normalizedY < -0.5) {
-                    keys['ArrowUp'] = true;
-                    keys['ArrowDown'] = false;
-                } else if (normalizedY > 0.5) {
-                    keys['ArrowDown'] = true;
-                    keys['ArrowUp'] = false;
-                } else {
-                    keys['ArrowUp'] = false;
-                    keys['ArrowDown'] = false;
-                }
-                
-                // Handle left/right steering
-                // Increased threshold from 0.3 to 0.5 for less twitchy steering
-                if (normalizedX < -0.5) {
-                    keys['ArrowLeft'] = true;
-                    keys['ArrowRight'] = false;
-                } else if (normalizedX > 0.5) {
-                    keys['ArrowRight'] = true;
-                    keys['ArrowLeft'] = false;
-                } else {
-                    keys['ArrowLeft'] = false;
-                    keys['ArrowRight'] = false;
-                }
+                // Apply to car controls using analog inputs (smoother than binary key mapping)
+                const deadZone = 0.25;
+                const applyDeadZone = (v) => {
+                    const av = Math.abs(v);
+                    if (av <= deadZone) return 0;
+                    const scaled = (av - deadZone) / (1 - deadZone);
+                    // Ease-in for finer control near center
+                    const eased = scaled * scaled;
+                    return Math.sign(v) * eased;
+                };
+
+                const steer = applyDeadZone(normalizedX);
+                const forward = applyDeadZone(-normalizedY);
+                const backward = applyDeadZone(normalizedY);
+
+                analogInput.steer = Math.max(-1, Math.min(1, steer));
+                analogInput.throttle = Math.max(0, Math.min(1, forward));
+                analogInput.brake = Math.max(0, Math.min(1, backward));
                 
                 // Visual feedback - change color based on intensity
                 const intensity = Math.min(1, distance / maxDistance);
@@ -2733,6 +2747,11 @@
                 keys['ArrowDown'] = false;
                 keys['ArrowLeft'] = false;
                 keys['ArrowRight'] = false;
+
+                // Reset analog joystick state
+                analogInput.throttle = 0;
+                analogInput.brake = 0;
+                analogInput.steer = 0;
                 
                 joystickActive = false;
                 joystickTouchId = null;
@@ -2977,18 +2996,37 @@
 
     function updateCar() {
         if (gameOver) return;
+
+        const accel = GAME_CONSTANTS.CAR.ACCELERATION;
+        const decel = GAME_CONSTANTS.CAR.DECELERATION;
+        const turnSpeed = GAME_CONSTANTS.CAR.TURN_SPEED;
+        const maxSpeed = carMaxSpeed;
+
+        const keyboardThrottle = keys['ArrowUp'] ? 1 : 0;
+        const keyboardBrake = keys['ArrowDown'] ? 1 : 0;
+        const keyboardSteer = (keys['ArrowLeft'] ? 1 : 0) - (keys['ArrowRight'] ? 1 : 0);
+
+        const throttleInput = Math.max(keyboardThrottle, analogInput.throttle);
+        const brakeInput = Math.max(keyboardBrake, analogInput.brake);
+        const steerInput = analogInput.steer !== 0 ? analogInput.steer : keyboardSteer;
         
         // Only allow controls when not locked
         if (!controlsLocked) {
             // Car controls (arcade style)
-            if (keys['ArrowUp']) carSpeed = Math.min(carSpeed + 0.08, carMaxSpeed);
-            else carSpeed = Math.max(carSpeed - 0.04, 0);
-            if (keys['ArrowLeft']) carAngle += (0.045 + driftFactor) * (carSpeed / carMaxSpeed + 0.5);
-            if (keys['ArrowRight']) carAngle -= (0.045 + driftFactor) * (carSpeed / carMaxSpeed + 0.5);
+            if (throttleInput > 0) {
+                carSpeed = Math.min(carSpeed + accel * throttleInput, maxSpeed);
+            } else {
+                const brakeFactor = brakeInput > 0 ? (1 + brakeInput * 2) : 1;
+                carSpeed = Math.max(carSpeed - decel * brakeFactor, 0);
+            }
+
+            if (steerInput !== 0) {
+                carAngle += steerInput * (turnSpeed + driftFactor) * (carSpeed / maxSpeed + 0.5);
+            }
 
             // Jump control - Space bar
             if (keys['Space'] && canJump && carOnGround) {
-                carVelocity.y = 6; // Jump power
+                carVelocity.y = GAME_CONSTANTS.CAR.JUMP_POWER; // Jump power
                 carOnGround = false;
                 canJump = false;
                 
@@ -3075,7 +3113,7 @@
             }
         } else {
             // When controls are locked, slow down
-            carSpeed = Math.max(carSpeed - 0.08, 0);
+            carSpeed = Math.max(carSpeed - decel * 2, 0);
         }
 
         // Update direction
@@ -3093,7 +3131,7 @@
 
         // Track collision: optimized to only check nearby segments
         carOnGround = false;
-        let minDist = 99999, groundY = null, groundNormal = new THREE.Vector3(0,1,0);
+        let minDist = 99999, groundY = null;
         let groundAngle = 0;
         let closestSegIdx = -1;
         let closestT = 0;
@@ -3103,17 +3141,20 @@
         
         for (let i = 0; i < nearbySegments.length; i++) {
             let seg = nearbySegments[i];
-            let segVec = new THREE.Vector3().subVectors(seg.p2, seg.p1);
-            let segLen = segVec.length();
-            let toCar = new THREE.Vector3().subVectors(carPosition, seg.p1);
-            let t = Math.max(0, Math.min(1, segVec.dot(toCar) / (segLen * segLen)));
-            let closest = lerpVec3(seg.p1, seg.p2, t);
-            let distXZ = Math.sqrt(
-                Math.pow(carPosition.x - closest.x, 2) +
-                Math.pow(carPosition.z - closest.z, 2)
-            );
-            if (distXZ < seg.width / 2 + 1) {
-                let yOnTrack = closest.y + 1.5;
+            tmpVec.segVec.subVectors(seg.p2, seg.p1);
+            const segLenSq = tmpVec.segVec.lengthSq();
+            if (segLenSq === 0) continue;
+            tmpVec.toCar.subVectors(carPosition, seg.p1);
+            let t = tmpVec.segVec.dot(tmpVec.toCar) / segLenSq;
+            t = Math.max(0, Math.min(1, t));
+
+            tmpVec.closest.copy(seg.p1).addScaledVector(tmpVec.segVec, t);
+            const dx = carPosition.x - tmpVec.closest.x;
+            const dz = carPosition.z - tmpVec.closest.z;
+            const limit = seg.width / 2 + 1;
+            const distXZSq = dx * dx + dz * dz;
+            if (distXZSq < limit * limit) {
+                let yOnTrack = tmpVec.closest.y + 1.5;
                 let yDiff = carPosition.y - yOnTrack;
                 
                 // Modified condition to prevent falling through track when landing
@@ -3121,13 +3162,9 @@
                 if (yDiff > -2 && Math.abs(yDiff) < minDist) {
                     minDist = Math.abs(yDiff);
                     groundY = yOnTrack;
-                    groundNormal = new THREE.Vector3(
-                        (seg.p2.y - seg.p1.y) / segLen * segVec.x / segLen,
-                        1,
-                        (seg.p2.y - seg.p1.y) / segLen * segVec.z / segLen
-                    ).normalize();
+                    const segLen = Math.sqrt(segLenSq);
                     groundAngle = Math.atan2(seg.p2.y - seg.p1.y, segLen);
-                    closestSegIdx = trackSegments.indexOf(seg);
+                    closestSegIdx = seg.id;
                     closestT = t;
                 }
             }
@@ -3156,10 +3193,10 @@
             // Update respawn point to last valid position on track
             if (closestSegIdx >= 0) {
                 let seg = trackSegments[closestSegIdx];
-                let segVec = new THREE.Vector3().subVectors(seg.p2, seg.p1);
-                let yaw = Math.atan2(segVec.x, segVec.z);
+                tmpVec.segVec2.subVectors(seg.p2, seg.p1);
+                let yaw = Math.atan2(tmpVec.segVec2.x, tmpVec.segVec2.z);
                 respawnPoint = {
-                    pos: lerpVec3(seg.p1, seg.p2, closestT).clone(),
+                    pos: tmpVec.closest.copy(seg.p1).addScaledVector(tmpVec.segVec2, closestT).clone(),
                     angle: yaw
                 };
             }
@@ -3205,30 +3242,29 @@
         car.rotation.y = carAngle;
 
         // Camera follows car with improved smoothing
-        let idealOffset = new THREE.Vector3(
+        tmpVec.idealOffset.set(
             Math.sin(carAngle) * cameraOffset.z,
             cameraOffset.y,
             Math.cos(carAngle) * cameraOffset.z
         );
         
         // Adjust camera height based on car speed for dynamic effect
-        idealOffset.y += Math.min(carSpeed * 0.5, 5);
+        tmpVec.idealOffset.y += Math.min(carSpeed * 0.5, 5);
         
-        let camTarget = carPosition.clone().add(idealOffset);
+        tmpVec.camTarget.copy(carPosition).add(tmpVec.idealOffset);
         
         // Smoother camera follow with easing
-        camera.position.lerp(camTarget, 0.05 + (carSpeed / carMaxSpeed) * 0.13);
+        camera.position.lerp(tmpVec.camTarget, 0.05 + (carSpeed / carMaxSpeed) * 0.13);
         
         // Look ahead more at higher speeds
         const lookAheadFactor = 5 + (carSpeed / carMaxSpeed) * 15;
-        const lookTarget = carPosition.clone().add(
-            new THREE.Vector3(
-                Math.sin(carAngle) * lookAheadFactor,
-                0,
-                Math.cos(carAngle) * lookAheadFactor
-            )
+        tmpVec.lookAhead.set(
+            Math.sin(carAngle) * lookAheadFactor,
+            0,
+            Math.cos(carAngle) * lookAheadFactor
         );
-        camera.lookAt(lookTarget);
+        tmpVec.lookTarget.copy(carPosition).add(tmpVec.lookAhead);
+        camera.lookAt(tmpVec.lookTarget);
     }
     
     // Visual effects for boost
@@ -3639,6 +3675,9 @@
     // Update animate function for collectibles animation
     function animate() {
         animationFrameId = requestAnimationFrame(animate);
+
+        const nowMs = performance.now();
+        const nowEpoch = Date.now();
         
         // Update FPS counter
         updateFPS();
@@ -3657,10 +3696,10 @@
                 item.object.rotation.z += item.rotation.z;
                 
                 // Float up and down with sine wave
-                item.object.position.y = item.position.y + Math.sin(Date.now() * 0.002) * 0.5;
+                item.object.position.y = item.position.y + Math.sin(nowMs * 0.002) * 0.5;
                 
                 // Pulsate scale
-                const scale = 1 + Math.sin(Date.now() * 0.003) * 0.1;
+                const scale = 1 + Math.sin(nowMs * 0.003) * 0.1;
                 item.object.scale.set(scale, scale, scale);
                 
                 // Make inner objects rotate in opposite direction (first child)
@@ -3671,7 +3710,8 @@
         });
         
         // Broadcast position at a reasonable rate (10 times per second)
-        if (peer && connections.length > 0 && Date.now() % 100 < 20) {
+        if (peer && connections.length > 0 && (nowMs - lastPositionBroadcastMs) >= 100) {
+            lastPositionBroadcastMs = nowMs;
             broadcastPosition();
         }
         
@@ -3687,16 +3727,16 @@
         });
         
         // Remove stale players (disconnected but not caught by close event)
-        const now = Date.now();
         Object.keys(otherPlayers).forEach(id => {
             // Increase timeout to 20 seconds for better persistence
-            if (now - otherPlayers[id].lastUpdate > 20000) {
+            if (nowEpoch - otherPlayers[id].lastUpdate > 20000) {
                 removeOtherPlayerCar(id);
             }
         });
         
         // Update minimap if it exists
-        if (document.getElementById('minimap')) {
+        if (document.getElementById('minimap') && (nowMs - lastMinimapUpdateMs) >= 100) {
+            lastMinimapUpdateMs = nowMs;
             updateMinimapMarkers();
         }
         
@@ -4595,7 +4635,11 @@
     // Periodically sync full state for reliability
     function syncMultiplayerState() {
         // Only sync every 5 seconds to reduce traffic
-        if (!peer || !connections.length || Date.now() % 5000 > 100) return;
+        if (!peer || !connections.length) return;
+
+        const nowMs = performance.now();
+        if ((nowMs - lastFullStateSyncMs) < 5000) return;
+        lastFullStateSyncMs = nowMs;
         
         const fullState = {
             type: 'playerState',
@@ -5601,8 +5645,9 @@
             document.getElementById('instructions').innerHTML = '<b>Use on-screen controls</b> to drive. Tap to Jump, Boost, Drift, and Shoot!';
             
             // Reduce car turn speed on mobile for better control
-            GAME_CONSTANTS.CAR.TURN_SPEED = 0.030; // Reduced from 0.045
-            GAME_CONSTANTS.CAR.ACCELERATION = 0.06; // Slightly reduced for smoother acceleration
+            GAME_CONSTANTS.CAR.TURN_SPEED = 0.022; // Calmer steering for touch controls
+            GAME_CONSTANTS.CAR.ACCELERATION = 0.045; // Slower ramp-up for better control
+            GAME_CONSTANTS.CAR.DECELERATION = 0.06; // Stop more quickly when releasing joystick
         }
         
         // Fetch latest block more robustly
